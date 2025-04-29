@@ -1,5 +1,23 @@
 #include <thread>
 #include <iostream>
+#include <vector>
+#include <mutex>
+
+class RealTimePrices {
+
+	private:
+		std::vector<double> prices;
+		std::mutex mtx;
+
+	public:
+	// Add price to the vector
+	void addPrice(double price) {
+		prices.push_back(price);
+	}
+
+};
+
+
 
 
 void workFunc(int* ptr, size_t times)
