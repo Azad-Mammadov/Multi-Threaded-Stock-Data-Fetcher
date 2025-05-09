@@ -2,66 +2,74 @@
 #include <iostream>
 #include <vector>
 #include <mutex>
+#include <string>
+#include "httplib.h" // Include the cpp-httplib header for HTTP requests
+#include "include/nlohmann/json.hpp" // Include the nlohmann/json library for JSON parsing
+
 
 // Thread-safe structure to store real-time prices
 class RealTimePrices {
+private:
+    std::vector<double> prices; // Vector to store stock prices
+    std::mutex mtx;             // Mutex to ensure thread-safe access
 
-	private:
-		std::vector<double> prices;
-		std::mutex mtx;
+public:
+    // Add price to the vector
+    void addPrice(double price) {
+        std::lock_guard<std::mutex> lock(mtx); // Lock the mutex for thread safety
+        prices.push_back(price);
+    }
 
-	public:
-	// Add price to the vector
-	void addPrice(double price) {
-		std::lock_guard<std::mutex> lock(mtx); // Lock the mutex for thread safety
-		prices.push_back(price);
-	}
-
-	// Retrieve all prices (thread-safe copy)
-	std::vector<double> getPrices() {
-		std::lock_guard<std::mutex> lock(mtx); // Lock the mutex for thread safety
-		return prices; // Return a copy of the prices vector
-	}
-	
-	// Print all prices (for debugging)
-	void printPrices() {
-		std::lock_guard<std::mutex> lock(mtx); // Lock the mutex for thread safety
-		for (const auto& price : prices) {
-			std::cout << price << " ";
-		}
-		std::cout << std::endl;
-	}
-
+    // Print all prices (for debugging)
+    void printPrices() {
+        std::lock_guard<std::mutex> lock(mtx); // Lock the mutex for thread safety
+        for (const auto& price : prices) {
+            std::cout << price << " ";
+        }
+        std::cout << std::endl;
+    }
 };
 
+// Worker function to fetch stock prices from Finnhub API
+void fetchStockPrices(RealTimePrices& priceStore, const std::string& symbol, const std::string& apiKey) {
+    httplib::Client cli("https://finnhub.io");
+    std::string endpoint = "/api/v1/quote?symbol=" + symbol + "&token=" + apiKey;
 
-void workFunc(int* ptr, size_t times)
-{
-	while(times--) {
-		*ptr += 1;
-	}
+    auto res = cli.Get(endpoint.c_str());
+    if (res && res->status == 200) {
+        // Parse the response (assuming JSON format)
+        auto json = nlohmann::json::parse(res->body);
+        double currentPrice = json["c"]; // "c" is the current price in Finnhub's response
+        priceStore.addPrice(currentPrice);
+        std::cout << "Fetched price for " << symbol << ": " << currentPrice << std::endl;
+    } else {
+        std::cerr << "Failed to fetch price for " << symbol << std::endl;
+    }
 }
 
+int main() {
+    RealTimePrices priceStore; // Create an instance of RealTimePrices
+    std::string apiKey = "cvqogt9r01qp88cms3i0cvqogt9r01qp88cms3ig"; // Your API key
 
-int main(int argc, char const *argv[])
-{
-	int* numbers = new int[3];
+    // Symbols to fetch prices for
+    std::vector<std::string> symbols = {"AAPL", "GOOGL", "MSFT"};
 
-	std::thread t1(workFunc, numbers, 500);
-	std::thread t2(workFunc, numbers + 1, 600);
-	std::thread t3(workFunc, numbers + 2, 700);
+    // Create threads to fetch prices for different symbols
+    std::vector<std::thread> threads;
+    for (const auto& symbol : symbols) {
+        threads.emplace_back(fetchStockPrices, std::ref(priceStore), symbol, apiKey);
+    }
 
-	// Join threads to ensure the main thread waits for their completion
-	// .join() blocks the main thread until the respective thread finishes execution.
-	t1.join();
-	t2.join();
-	t3.join();
+    // Join threads
+    for (auto& thread : threads) {
+        thread.join();
+    }
 
-	for(int i = 0; i < 3; ++i)
-		std::cout << "Number Slot " << (int)i << " is " << (int)numbers[i] << std::endl;
+    // Print all fetched prices
+    std::cout << "All fetched prices: ";
+    priceStore.printPrices();
 
-	delete[] numbers;
-	return 0;
+    return 0;
 }
 
 
